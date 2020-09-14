@@ -40,44 +40,50 @@ def detect_boolean(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
+# Print to the termnal in color!
+def print_in_color(text, color):
+    color_dict = {
+        'White': '\033[39m',
+        'Red': '\033[31m',
+        'Blue': '\033[34m',
+        'Green': '\033[32m',
+        'Orange': '\033[33m',
+        'Magenta': '\033[35m',
+        'Red_Background': '\033[41m',
+    }
 
-def clean_string_infested_float_col(df, col):
-    df[col] = df[col].replace("[^0-9.]", "", regex=True)
-    # df[col] = None if df[col] == "." else df[col]
-    df = df[df[col].str.match(".") == None]
-    df[col] = df[col].astype(float)
-    return df[col]
+    color = color_dict[color.title()]
+    print(color + text + color + color_dict['White'])
+    # Trailing white prevents the color from staying applied
+
 
 def convert_obj_col_to_float(df, col):
     df[col] = df[col].str.replace(",", "")
     df[col] = pd.to_numeric(df[col], errors='coerce')
     return df
 
-### TOOD DROP maybe
+
 def prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter):
 
-    message = f"Options: P: Concatenate text; L: Sum numbers; M: Average numbers ---- {col}"
-
+    message = f"For col: {col} - how would you like it to be merged?"
     questions = [inquirer.Text("col_merge_type", message=message)]
     answers = inquirer.prompt(questions)
+
     if answers["col_merge_type"] in ["p", "P", "P:", 0, "O", "o"]:
         print('Concatenating text')
         groupby_dict["Clean " + col] = (col, concat_delimiter.join)
         df[col] = df[col].astype(str)
+
     elif answers["col_merge_type"] in ["l", "L", "L:", "k", "K"]:
         print('Summing numbers')
         groupby_dict["Clean " + col] = (col, np.sum)
         df = convert_obj_col_to_float(df, col)
-        # df[col] = df[col].to_numeric(errors='coerce')
-        # df[col] = pd.to_numeric(df[col], errors='coerce')
-        # df[col]= clean_string_infested_float_col(df, col)
+
     elif answers["col_merge_type"] in ["n", "N", "m", "M", "M:"]:
         print('Averaging (arithmetic mean) numbers')
         groupby_dict["Clean " + col] = (col, np.mean)
         df = convert_obj_col_to_float(df, col)
-        # df[col] = pd.to_numeric(df[col], errors='coerce')
-        # df[col] = df[col].to_numeric(errors='coerce')
-        # df[col]= df[col].replace("[^0-9.]", "", regex=True).astype(float)
+
     elif answers["col_merge_type"] in ["Q", "q", "a", "A", "w", "W"]:
         print(f"Dropping the column {col}")
         del df[col]
@@ -90,64 +96,29 @@ def prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter):
 
 
 if __name__ == "__main__":
-    # list_of_files = [f for f in os.listdir('.') if (os.path.isfile(f) and f".{args.type.lower()}" in f and f != args.output_filename and os.path.getsize(f) != 0)]
     filename = args.filename if any(x for x in [".csv", ".xlsx"] if x in args.filename) else args.filename + ".csv"
 
     df = pd.read_csv(filename, encoding=args.encoding, engine=args.engine, error_bad_lines=detect_boolean(args.break_on_errors), escapechar='\\')
 
     print(f"File is of shape {df.shape}, with columns {df.columns}")
-    print("\nFor each column, you decide how rows with same unique_key are merged. Your options are as follows:")
-    print("Press P and Enter - Concatenate (combine) text")
-    print("Press L and Enter - Sum numbers")
-    print("Press M and Enter - Average (arithmetic mean) numbers")
-    print("Press Q and Enter - The column will be removed from the output")
-    print("Just Press Enter - The first value found will be used")
+
+    print_in_color("\nFor each column, you decide how rows with same unique_key are merged. Your options are as follows:", "Blue")
+    print_in_color("Press P and Enter - Concatenate (combine) text", "Blue")
+    print_in_color("Press L and Enter - Sum numbers", "Blue")
+    print_in_color("Press M and Enter - Average (arithmetic mean) numbers", "Blue")
+    print_in_color("Press Q and Enter - The column will be removed from the output", "Red")
+    print_in_color("Just Press Enter - The first value found will be used", "Blue")
+
     groupby_dict = {}
     for col in df.columns:
         print(df[col].dtypes)
         df, groupby_dict = prompt_user_for_col_types(df, col, groupby_dict, args.concat_delimiter)
 
-    print(groupby_dict)
     df2 = df.groupby(args.unique_key).agg(**groupby_dict).reset_index()
-    # df = df.groupby(args.unique_key).agg(**groupby_dict).reset_index()
-# max_height=('height', 'max'), min_weight=('weight', 'min'),)
 
-    print(f"After the merge, the file is of shape {df.shape}, with columns {df.columns}")
+    print(f"After the merge, the file is of shape {df2.shape}, with columns {df2.columns}")
 
     df2.to_csv(args.output_filename, index=False)
 
-    print(f"Now written the output file with name {args.output_filename}")
+    print_in_color(f"Now written the output file with name {args.output_filename}", "Green")
 
-
-# Print to the termnal in color!
-def colorful_print(inputText, inputColor):
-  color_dict = {
-    'White': '\033[39m',
-    'Red': '\033[31m',
-    'Blue': '\033[34m',
-    'Green': '\033[32m',
-    'Orange': '\033[33m',
-    'Magenta': '\033[35m',
-    'Red_Background': '\033[41m',
-  }
-
-  color = color_dict[inputColor.title()]
-
-  if isinstance(inputText, tuple) or isinstance(inputText, list):
-    inputText = ', '.join(str(v) for v in inputText)
-
-  print(color + inputText + color)
-  print(color_dict['White'] + " " + color_dict['White'])
-
-# df = df.groupby('Name').agg({'Sid':'first',
-#                              'Use_Case': ', '.join,
-#                              'Revenue':'first' }).reset_index()
-
-
-
-        # if col_merge_type == "Concatenating text":
-        #     groupby_dict[col] = concat_delimiter.join
-        # elif col_merge_type == "Summing numbers":
-        #     groupby_dict[col] = np.sum
-        # else:
-        #     continue
