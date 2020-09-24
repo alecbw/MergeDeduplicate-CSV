@@ -65,7 +65,7 @@ def deduplicate_and_join(x):
 
 def prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter):
 
-    message = f"For col: {col} - how would you like it to be merged?"
+    message = f"\nFor col: {col} - how would you like it to be merged?"
     questions = [inquirer.Text("col_merge_type", message=message)]
     answers = inquirer.prompt(questions)
     answer = answers["col_merge_type"].replace('"', '')
@@ -76,7 +76,7 @@ def prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter):
         df[col] = df[col].astype(str)
 
     # FYI this is compute expensive
-    elif answer in ["ddc", "DDC", "dedupe_cat", "dd_cat", "deduplicate_concat"]:
+    elif answer in ["ddc", "DDC", "dd_cat", "dd_concat", "dedupe_cat", "deduplicate_concat"]:
         print('Deduplicating then concatenating text')
         groupby_dict["Clean " + col] = (col, deduplicate_and_join)
         df[col] = df[col].astype(str)
@@ -128,8 +128,8 @@ def main_op(config_args):
     print_in_color('"sum" and Enter - Sum numbers', 'Cyan')
     print_in_color('"avg" and Enter - Average (arithmetic mean) numbers', 'Cyan')
     print_in_color('"max" and Enter - Take the highest value', 'Cyan')
-    print_in_color('"min" and Enter - Taking the lowest value', 'Cyan')
-    print_in_color(f'"drop" and Enter - Drops the column, so it wont be in the output', 'Cyan')
+    print_in_color('"min" and Enter - Take the lowest value', 'Cyan')
+    print_in_color('"drop" and Enter - Drop the column, so it wont be in the output', 'Cyan')
     print_in_color("Just Press Enter - The first value found will be used", 'Cyan')
 
     global concat_delimiter
@@ -137,23 +137,31 @@ def main_op(config_args):
 
     groupby_dict = {}
     for col in df.columns:
-        df, groupby_dict = prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter)
+        if col != config_args["unique_key"]:
+            df, groupby_dict = prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter)
+
+
+    print("Beginning the merge")
 
     df2 = df.groupby(config_args['unique_key']).agg(**groupby_dict).reset_index()
 
-    print(f"After the merge, the file is of shape {df2.shape}, with columns {df2.columns}")
+    df2 = df2.rename(columns=lambda x: x.strip().replace("Clean ", ""))
 
-    df2.to_csv(config_args['output_filename'], index=False)
+    print(f"After the merge, the file is of shape {df2.shape}, with columns {df2.columns.tolist()}")
 
-    print_in_color(f"Now written the output file with name {config_args['output_filename']}", "Green")
+    output_filename = config_args.get('output_filename', "MDD_" + config_args["filename"])
+
+    df2.to_csv(output_filename, index=False)
+
+    print_in_color(f"Now finished. The output file has been written with name {config_args['output_filename']}", "Green")
 
 
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('-filename', help="Name of your input file")
+    argparser.add_argument('-filename', required=True, help="Name of your input file")
     argparser.add_argument('-output_filename', nargs='?', default="! Post_Deduplication.csv", help="If you want an output filename other than the default")
-    argparser.add_argument('-unique_key', help="The column you want to deduplicate/merge on")
+    argparser.add_argument('-unique_key', required=True, help="The column you want to deduplicate/merge on")
     # If you're getting "pandas.errors.ParserError: Error tokenizing data. C error" use -engine python
     argparser.add_argument('-engine', nargs='?', default="c", help="Set to 'c' if you're getting Error tokenizing data errors")
     argparser.add_argument('-encoding', nargs='?', default="utf-8", help="Usually ISO-8859-1 is a good alternative")
