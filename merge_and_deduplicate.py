@@ -46,21 +46,37 @@ def print_in_color(text, color):
 
 
 def convert_obj_col_to_float(df, col):
-    df[col] = df[col].str.replace(",", "")
-    df[col] = pd.to_numeric(df[col], errors='coerce')
+    if df.dtypes[col] not in ["int64", "float64"]:
+        df[col] = df[col].str.replace(",", "")
+        df[col] = pd.to_numeric(df[col], errors='coerce')
     return df
 
 
 def validate_val_not_various_nulls(val):
     if pd.isnull(val):
         return 0
-    null_values = ["", " ", "[]", "{}", [], {}]
+    null_values = ["", " ", "[]", "{}", [], {}, "0", np.nan, float('nan'), "nan", None]
     return 0 if val in null_values else 1
 
-
+# 
 def deduplicate_and_join(x):
     deduplicated_values_for_one_unique_key = {y for y in x if validate_val_not_various_nulls(y)}
     return concat_delimiter.join(deduplicated_values_for_one_unique_key)
+
+ 
+# input is a series (not the full col) group'd-by the unique_key
+def split_and_deduplicate_and_join(series):
+    output_set = set()
+    for cell in series:
+        if not cell:
+            continue
+        for val in cell.split(concat_delimiter):
+            if validate_val_not_various_nulls(val):
+                print(val)
+                print(type(val))
+                output_set.add(val)
+
+    return concat_delimiter.join(output_set)
 
 
 def prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter):
@@ -79,6 +95,11 @@ def prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter):
     elif answer in ["ddc", "DDC", "dd_cat", "dd_concat", "dedupe_cat", "deduplicate_concat"]:
         print('Deduplicating then concatenating text')
         groupby_dict["Clean " + col] = (col, deduplicate_and_join)
+        df[col] = df[col].astype(str)
+
+    elif answer in ["sdc", "split_dd_cat", "split_dupe_cat"]:
+        print(f'Splitting each cell by "{concat_delimiter}", deduplicating, then concatenating text')
+        groupby_dict["Clean " + col] = (col, split_and_deduplicate_and_join)
         df[col] = df[col].astype(str)
 
     elif answer in ["s", "sum", "Sum", "total"]:
@@ -120,11 +141,15 @@ def main_op(config_args):
         filename = config_args.get('filename') if any(x for x in [".csv", ".xlsx"] if x in config_args.get('filename')) else config_args.get('filename') + ".csv"
         df = pd.read_csv(filename, sep=args["sep"], encoding=config_args['encoding'], engine=config_args['engine'], error_bad_lines=detect_boolean(config_args['break_on_errors']), escapechar='\\')
 
-    print(f"File is of shape {df.shape}, with columns {df.columns}")
+    print(f"Your file has {df.shape[0]} rows and {df.shape[1]} columns. The columns are named: {df.columns.to_list()}")
+
+    global concat_delimiter
+    concat_delimiter = config_args['concat_delimiter']
 
     print_in_color("\nFor each column, you decide how rows with same unique_key are merged. Your options are as follows:", "Bold")
     print_in_color('"cat" and Enter - Concatenate text', 'Cyan')
     print_in_color('"ddc" and Enter - Deduplicate, and then Concatenate text', 'Cyan')
+    print_in_color(f'"sdc" and Enter - Split by "{concat_delimiter}", Deduplicate, and then Concatenate text', 'Cyan')
     print_in_color('"sum" and Enter - Sum numbers', 'Cyan')
     print_in_color('"avg" and Enter - Average (arithmetic mean) numbers', 'Cyan')
     print_in_color('"max" and Enter - Take the highest value', 'Cyan')
@@ -132,8 +157,7 @@ def main_op(config_args):
     print_in_color('"drop" and Enter - Drop the column, so it wont be in the output', 'Cyan')
     print_in_color("Just Press Enter - The first value found will be used", 'Cyan')
 
-    global concat_delimiter
-    concat_delimiter = config_args['concat_delimiter']
+    print("\n If you make a mistake, hit CONTROL+C to start over\n")
 
     groupby_dict = {}
     for col in df.columns:
@@ -141,7 +165,7 @@ def main_op(config_args):
             df, groupby_dict = prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter)
 
 
-    print("Beginning the merge")
+    print("\nBeginning the merge")
 
     df2 = df.groupby(config_args['unique_key']).agg(**groupby_dict).reset_index()
 
