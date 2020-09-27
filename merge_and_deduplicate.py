@@ -72,8 +72,6 @@ def split_and_deduplicate_and_join(series):
             continue
         for val in cell.split(concat_delimiter):
             if validate_val_not_various_nulls(val):
-                print(val)
-                print(type(val))
                 output_set.add(val)
 
     return concat_delimiter.join(output_set)
@@ -86,7 +84,7 @@ def prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter):
     answers = inquirer.prompt(questions)
     answer = answers["col_merge_type"].replace('"', '')
 
-    if answer in ["c", "cat", "Cat", "concat", "combine"]:
+    if answer in ["cat", "Cat", "concat", "combine"]:
         print('Concatenating text')
         groupby_dict["Clean " + col] = (col, concat_delimiter.join)
         df[col] = df[col].astype(str)
@@ -102,12 +100,12 @@ def prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter):
         groupby_dict["Clean " + col] = (col, split_and_deduplicate_and_join)
         df[col] = df[col].astype(str)
 
-    elif answer in ["s", "sum", "Sum", "total"]:
+    elif answer in ["sum", "Sum", "total"]:
         print('Summing numbers')
         groupby_dict["Clean " + col] = (col, np.sum)
         df = convert_obj_col_to_float(df, col)
 
-    elif answer in ["mean", "Mean", "avg", "Avg", "average"]:
+    elif answer in ["avg", "Avg", "mean", "Mean", "average"]:
         print('Averaging (arithmetic mean) numbers')
         groupby_dict["Clean " + col] = (col, np.mean)
         df = convert_obj_col_to_float(df, col)
@@ -141,7 +139,10 @@ def main_op(config_args):
         filename = config_args.get('filename') if any(x for x in [".csv", ".xlsx"] if x in config_args.get('filename')) else config_args.get('filename') + ".csv"
         df = pd.read_csv(filename, sep=args["sep"], encoding=config_args['encoding'], engine=config_args['engine'], error_bad_lines=detect_boolean(config_args['break_on_errors']), escapechar='\\')
 
-    print(f"Your file has {df.shape[0]} rows and {df.shape[1]} columns. The columns are named: {df.columns.to_list()}")
+    # print(f"Your file has {df.shape[0]} rows and {df.shape[1]} columns.")
+    # print(f"The columns are: {[f'{x}: {x.dtypes}' for x in df.columns.to_list()]}")
+    print(f"Here's an overview of your file: {filename}")
+    print(df.info())
 
     global concat_delimiter
     concat_delimiter = config_args['concat_delimiter']
@@ -175,7 +176,7 @@ def main_op(config_args):
 
     output_filename = config_args.get('output_filename', "MDD_" + config_args["filename"])
 
-    df2.to_csv(output_filename, index=False)
+    df2.to_csv(output_filename, index=False, encoding='utf-8')
 
     print_in_color(f"Now finished. The output file has been written with name {config_args['output_filename']}", "Green")
 
@@ -196,3 +197,7 @@ if __name__ == "__main__":
     args = argparser.parse_args()
     args = vars(args)
     main_op(args)
+
+
+
+# maybe TODO a helper that detects "Unnamed: n" cols that have no values and drops them
