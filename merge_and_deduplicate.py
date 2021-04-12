@@ -3,6 +3,8 @@ import os
 import argparse
 import itertools
 import re
+import json
+from pprint import pprint
 
 import inquirer
 
@@ -77,6 +79,47 @@ def split_and_deduplicate_and_join(series):
     return concat_delimiter.join(output_set)
 
 
+def load_col_types_from_schema_json(config_args, df, concat_delimiter):
+    operations_options = {
+        "cat": concat_delimiter.join,
+        "ddc": deduplicate_and_join,
+        "sdc": split_and_deduplicate_and_join,
+        "sum": np.sum,
+        "avg": np.mean,
+        "max": np.max,
+        "min": np.min,
+        "first": "first",
+
+    }
+    groupby_dict = {}
+
+    if not (os.path.isfile(config_args['schema_json']) and '.json' in config_args['schema_json'] and os.path.getsize(config_args['schema_json']) != 0):
+        raise IOError("Ensure your `schema_json` file is in the local dir, is named correctly, and has the .json suffix")
+
+    with open(config_args['schema_json']) as f:
+        schema_dict = json.load(f, strict=True)
+
+    unique_keys = config_args["unique_key"].split(",") if "," in config_args["unique_key"] else [config_args["unique_key"]]
+
+    if not (set(unique_keys + list(schema_dict.keys())) == set(df.columns.tolist())):
+        raise IOError("Ensure the `schema_json` file has a k:v pair for each NON-unique_key column in the data")
+
+    for col, v in schema_dict.items():
+        if v in ['cat', 'ddc', 'sdc']:
+            df[col] = df[col].astype(str)
+        elif v in ['sum', 'avg', 'max', 'min']:
+            df = convert_obj_col_to_float(df, col)
+        elif v == 'drop':
+            del df[col]
+
+        if v != "drop":
+            groupby_dict["Clean " + col] = (col, operations_options[v]) # the groupby requires this tuple structure
+
+    print("These operations will be undertaken:\n")
+    pprint(schema_dict)
+
+    return df, groupby_dict
+
 def prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter):
 
     message = f"\nFor col: {col} - how would you like it to be merged?"
@@ -120,7 +163,7 @@ def prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter):
         groupby_dict["Clean " + col] = (col, np.min)
         df = convert_obj_col_to_float(df, col)
 
-    elif answer in ["drop", "Drop"]:
+    elif answer in ["drop", "Drop", "skip"]:
         print(f"Dropping the column {col}")
         del df[col]
 
@@ -147,29 +190,39 @@ def main_op(config_args):
     global concat_delimiter
     concat_delimiter = config_args['concat_delimiter']
 
-    print_in_color("\nFor each column, you decide how rows with same unique_key are merged. Your options are as follows:", "Bold")
-    print_in_color('"cat" and Enter - Concatenate text', 'Cyan')
-    print_in_color('"ddc" and Enter - Deduplicate, and then Concatenate text', 'Cyan')
-    print_in_color(f'"sdc" and Enter - Split by "{concat_delimiter}", Deduplicate, and then Concatenate text', 'Cyan')
-    print_in_color('"sum" and Enter - Sum numbers', 'Cyan')
-    print_in_color('"avg" and Enter - Average (arithmetic mean) numbers', 'Cyan')
-    print_in_color('"max" and Enter - Take the highest value', 'Cyan')
-    print_in_color('"min" and Enter - Take the lowest value', 'Cyan')
-    print_in_color('"drop" and Enter - Drop the column, so it wont be in the output', 'Cyan')
-    print_in_color("Just Press Enter - The first value found will be used", 'Cyan')
+    if config_args.get('schema_json'):
+        df, groupby_dict = load_col_types_from_schema_json(config_args, df, concat_delimiter)
 
-    print("\n If you make a mistake, hit CONTROL+C to start over\n")
+    else:
+        print_in_color("\nFor each column, you decide how rows with same unique_key are merged. Your options are as follows:", "Bold")
+        print_in_color('"cat" and Enter - Concatenate text', 'Cyan')
+        print_in_color('"ddc" and Enter - Deduplicate, and then Concatenate text', 'Cyan')
+        print_in_color(f'"sdc" and Enter - Split by "{concat_delimiter}", Deduplicate, and then Concatenate text', 'Cyan')
+        print_in_color('"sum" and Enter - Sum numbers', 'Cyan')
+        print_in_color('"avg" and Enter - Average (arithmetic mean) numbers', 'Cyan')
+        print_in_color('"max" and Enter - Take the highest value', 'Cyan')
+        print_in_color('"min" and Enter - Take the lowest value', 'Cyan')
+        print_in_color('"drop" and Enter - Drop the column, so it wont be in the output', 'Cyan')
+        print_in_color("Just Press Enter - The first value found will be used", 'Cyan')
+        print("\n If you make a mistake, hit CONTROL+C to start over\n")
+        print()
 
-    groupby_dict = {}
-    for col in df.columns:
-        if col != config_args["unique_key"]:
-            df, groupby_dict = prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter)
+        groupby_dict = {}
+        for col in df.columns:
+            if col not in config_args["unique_key"]:
+                df, groupby_dict = prompt_user_for_col_types(df, col, groupby_dict, concat_delimiter)
 
 
     print("\nBeginning the merge")
 
-    df2 = df.groupby(config_args['unique_key']).agg(**groupby_dict).reset_index()
+    if config_args['case_insensitive']:
+        groupby_key = df[config_args['unique_key']].str.lower()
+    else:
+        groupby_key = [x.strip() for x in config_args['unique_key'].split(",")]
 
+
+    df2 = df.groupby(groupby_key).agg(**groupby_dict).reset_index()
+    
     df2 = df2.rename(columns=lambda x: x.strip().replace("Clean ", ""))
 
     print(f"After the merge, the file is of shape {df2.shape}, with columns {df2.columns.tolist()}")
@@ -180,6 +233,11 @@ def main_op(config_args):
 
     print_in_color(f"Now finished. The output file has been written with name {config_args['output_filename']}", "Green")
 
+
+"""
+FYI -case_insensitive and -unique_key being a list are incompatible
+if you pass a list unique_key, it will drop every row that doesn't have a value in each listed col
+"""
 
 
 if __name__ == "__main__":
@@ -193,6 +251,8 @@ if __name__ == "__main__":
     argparser.add_argument('-sep', nargs='?', default=",", help="The cell delimiter (seperator). Default is ','")
     argparser.add_argument('-break_on_errors', nargs='?', default=True, help="Default behavior is to break on errors. Set to false if you dgaf")
     argparser.add_argument('-concat_delimiter', nargs='?', default=', ', help="What concatenated strings will be separated by. Default is ', '")
+    argparser.add_argument('-case_insensitive', nargs='?', default=False, help="If you want the unique_key merge to be case insensitive. Default is 'a' != 'A'")
+    argparser.add_argument('-schema_json', nargs='?', default=False, help="Name of a JSON file containing the col name and merge types you want run instead of the interactive CLI")
 
     args = argparser.parse_args()
     args = vars(args)
